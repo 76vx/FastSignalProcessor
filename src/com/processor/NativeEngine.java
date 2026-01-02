@@ -37,3 +37,5 @@ public class NativeEngine {
         System.out.println("Throughput: " + String.format("%.2f", (bufferSize / (duration / 1000) / 1024 / 1024)) + " MB/s");
     }
 }
+
+//aun le faltan mejoras, pero esta god para ser Java (es el lenguaje mas mierdero que existe pero me gusta)
