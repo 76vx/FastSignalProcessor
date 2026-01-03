@@ -1,41 +1,47 @@
 package com.processor;
 
 import java.nio.ByteBuffer;
-import java.util.Random;
+import java.nio.ByteOrder;
+import java.security.SecureRandom;
 
-public class NativeEngine {
-    
+public final class NativeEngine {
+
     static {
-        // El nombre debe coincidir con el archivo compilado (libnative_engine.so o .dll), es logica, no tiene nada dificil, si controlas lo entenderas
-        System.loadLibrary("native_engine");
+        try {
+            System.loadLibrary("native_engine");
+        } catch (UnsatisfiedLinkError e) {
+            System.err.println("Critical: Native library 'libnative_engine' not found in java.library.path");
+            System.exit(1);
+        }
     }
 
-    // Método nativo para procesamiento de señales complejas, esta linea fue a base de una busqueda en stack overflow 
-    public native void applyGainFilter(byte[] data, float gain, int iterations);
+    public native void applyGainFilterDirect(ByteBuffer data, float gain, int iterations);
+
+    public void executeHighPerformanceCompute() {
+        final int bufferSize = 64 * 1024 * 1024;
+        
+        ByteBuffer signalData = ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.nativeOrder());
+        
+        byte[] entropy = new byte[1024];
+        new SecureRandom().nextBytes(entropy);
+        for (int i = 0; i < bufferSize; i++) {
+            signalData.put(i, entropy[i % entropy.length]);
+        }
+
+        System.out.println("Status: Buffer Allocated (" + (bufferSize >> 20) + " MB)");
+
+        final long startTime = System.nanoTime();
+
+        applyGainFilterDirect(signalData, 1.5f, 20);
+
+        final long endTime = System.nanoTime();
+        final double durationMs = (endTime - startTime) / 1_000_000.0;
+        final double throughput = (bufferSize / (1024.0 * 1024.0)) / (durationMs / 1000.0);
+
+        System.out.printf("Execution: %.2f ms | Throughput: %.2f MB/s%n", durationMs, throughput);
+    }
 
     public static void main(String[] args) {
-        NativeEngine engine = new NativeEngine();
-        
-        // esto es una simulacion de un buffer de 64MB xd
-        int bufferSize = 64 * 1024 * 1024;
-        byte[] signalData = new byte[bufferSize];
-        new Random().nextBytes(signalData);
-
-        System.out.println("--- System Ready: Starting High-Performance Compute ---");
-        System.out.println("Buffer size: " + (bufferSize / 1024 / 1024) + " MB");
-
-        // Comparativa de tiempo, recomendado para obtener un mayor control
-        long startTime = System.nanoTime();
-        
-        // Llamada al motor en C: Procesamos la señal con una ganancia y 20 pasadas
-        engine.applyGainFilter(signalData, 1.5f, 20);
-
-        long endTime = System.nanoTime();
-        double duration = (endTime - startTime) / 1_000_000.0;
-
-        System.out.printf("Compute finished in: %.2f ms\n", duration);
-        System.out.println("Throughput: " + String.format("%.2f", (bufferSize / (duration / 1000) / 1024 / 1024)) + " MB/s");
+        new NativeEngine().executeHighPerformanceCompute();
     }
 }
-
-//aun le faltan mejoras, pero esta god para ser Java (es el lenguaje mas mierdero que existe pero me gusta)
