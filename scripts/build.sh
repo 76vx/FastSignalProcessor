@@ -1,24 +1,33 @@
 #!/bin/bash
 
-# Configuración de rutas, recueda ajustarla segun el sistema operativo que este usando
-# creo que si entiendes algo de bash es logico lo que hice
-export JAVA_INC="$JAVA_HOME/include"
-export JAVA_INC_OS="$JAVA_HOME/include/linux" # Cambiar a /win32 para Windows
+set -e
 
-echo "[1/3] Compiling Java source..."
-javac -d bin src/com/processor/NativeEngine.java
+readonly SOURCE_DIR="src"
+readonly NATIVE_DIR="native"
+readonly BIN_DIR="bin"
+readonly INCLUDE_DIR="$NATIVE_DIR/include"
+readonly LIB_NAME="libnative_engine.so"
 
-echo "[2/3] Generating JNI Headers..."
-javac -h native/include src/com/processor/NativeEngine.java
+export JAVA_INC="${JAVA_HOME:?Error: JAVA_HOME is not set}/include"
+export JAVA_INC_OS="$JAVA_INC/$(uname -s | tr '[:upper:]' '[:lower:]')"
 
-echo "[3/3] Compiling Native C Engine..."
+rm -rf "$BIN_DIR" "$INCLUDE_DIR"
+mkdir -p "$BIN_DIR" "$INCLUDE_DIR"
+
+javac -d "$BIN_DIR" "$SOURCE_DIR/com/processor/NativeEngine.java"
+
+javac -h "$INCLUDE_DIR" \
+      -d "$BIN_DIR" \
+      "$SOURCE_DIR/com/processor/NativeEngine.java"
+
 gcc -shared -fPIC -O3 \
+    -march=native \
     -I"$JAVA_INC" \
     -I"$JAVA_INC_OS" \
-    native/arch_optim.c \
-    -o libnative_engine.so
+    -I"$INCLUDE_DIR" \
+    "$NATIVE_DIR/arch_optim.c" \
+    -o "$LIB_NAME"
 
-echo "Build Complete. Run with: java -Djava.library.path=. -cp bin com.processor.NativeEngine"
-
-
-# un script sencillo, pero eficaz hablando para el funcionamiento del proyecto
+if [ ! -f "$LIB_NAME" ]; then
+    exit 1
+fi
