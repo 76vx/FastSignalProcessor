@@ -2,43 +2,54 @@ package com.processor;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.security.SecureRandom;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 
 public final class NativeEngine {
 
     static {
-        try {
-            System.loadLibrary("native_engine");
-        } catch (UnsatisfiedLinkError e) {
-            System.err.println("Critical: Native library 'libnative_engine' not found in java.library.path");
-            System.exit(1);
-        }
+        System.loadLibrary("native_engine");
     }
 
     public native void applyGainFilterDirect(ByteBuffer data, float gain, int iterations);
 
     public void executeHighPerformanceCompute() {
-        final int bufferSize = 64 * 1024 * 1024;
+        final int bufferSize = 256 * 1024 * 1024; 
+        final int alignment = 64; 
         
-        ByteBuffer signalData = ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.nativeOrder());
+        ByteBuffer signalData = ByteBuffer.allocateDirect(bufferSize + alignment)
+                                          .order(ByteOrder.nativeOrder());
         
-        byte[] entropy = new byte[1024];
-        new SecureRandom().nextBytes(entropy);
-        for (int i = 0; i < bufferSize; i++) {
-            signalData.put(i, entropy[i % entropy.length]);
-        }
+        long address = ((sun.nio.ch.DirectBuffer)signalData).address();
+        int offset = (int) (alignment - (address % alignment));
+        signalData.position(offset);
+        ByteBuffer alignedBuffer = signalData.slice().order(ByteOrder.nativeOrder());
 
-        System.out.println("Status: Buffer Allocated (" + (bufferSize >> 20) + " MB)");
+        byte[] entropy = new byte[1024 * 1024];
+        ThreadLocalRandom.current().nextBytes(entropy);
+
+        IntStream.range(0, Runtime.getRuntime().availableProcessors()).parallel().forEach(core -> {
+            int chunk = bufferSize / Runtime.getRuntime().availableProcessors();
+            int start = core * chunk;
+            alignedBuffer.duplicate().position(start).put(entropy, 0, Math.min(entropy.length, chunk));
+        });
+
+        System.out.printf("Memory: %d MB | Alignment: %d bits%n", bufferSize >> 20, alignment * 8);
+
+        for (int warmup = 0; warmup < 5; warmup++) {
+            applyGainFilterDirect(alignedBuffer, 1.1f, 1);
+        }
 
         final long startTime = System.nanoTime();
 
-        applyGainFilterDirect(signalData, 1.5f, 20);
+        applyGainFilterDirect(alignedBuffer, 1.5f, 20);
 
         final long endTime = System.nanoTime();
-        final double durationMs = (endTime - startTime) / 1_000_000.0;
-        final double throughput = (bufferSize / (1024.0 * 1024.0)) / (durationMs / 1000.0);
+        
+        final double durationS = (endTime - startTime) / 1_000_000_000.0;
+        final double throughputGBs = (bufferSize / (1024.0 * 1024.0 * 1024.0)) / durationS;
 
-        System.out.printf("Execution: %.2f ms | Throughput: %.2f MB/s%n", durationMs, throughput);
+        System.out.printf("Latency: %.4f ms | Throughput: %.2f GB/s%n", durationS * 1000, throughputGBs);
     }
 
     public static void main(String[] args) {
