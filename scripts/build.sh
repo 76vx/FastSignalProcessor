@@ -1,44 +1,39 @@
 #!/bin/bash
 
 set -e
-set -o pipefail
 
-readonly SOURCE_DIR="src"
-readonly NATIVE_DIR="native"
-readonly BIN_DIR="bin"
-readonly INCLUDE_DIR="$NATIVE_DIR/include"
-readonly LIB_NAME="libnative_engine.so"
+SOURCE_DIR="src"
+NATIVE_DIR="native"
+BIN_DIR="bin"
+INCLUDE_DIR="$NATIVE_DIR/include"
+LIB_NAME="libnative_engine.so"
 
-export JAVA_HOME="${JAVA_HOME:?Error: JAVA_HOME is not set}"
-export JAVA_INC="$JAVA_HOME/include"
-export OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
-export JAVA_INC_OS="$JAVA_INC/$OS_NAME"
+JAVA_HOME="${JAVA_HOME:?Error: JAVA_HOME no definido}"
+JAVA_INC="$JAVA_HOME/include"
+OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+JAVA_INC_OS="$JAVA_INC/$OS_NAME"
 
-if [ -d "$BIN_DIR" ]; then rm -rf "$BIN_DIR"; fi
-if [ -d "$INCLUDE_DIR" ]; then rm -rf "$INCLUDE_DIR"; fi
-mkdir -p "$BIN_DIR"
-mkdir -p "$INCLUDE_DIR"
+rm -rf "$BIN_DIR" "$INCLUDE_DIR" "$LIB_NAME"
+mkdir -p "$BIN_DIR" "$INCLUDE_DIR"
 
-find "$SOURCE_DIR" -name "*.java" > /tmp/java_sources.txt
-
-while IFS= read -r file; do
+for file in $(find "$SOURCE_DIR" -type f -name "*.java"); do
+    echo "Compilando $file"
     javac -d "$BIN_DIR" "$file"
-done < /tmp/java_sources.txt
+done
 
-while IFS= read -r file; do
+for file in $(find "$SOURCE_DIR" -type f -name "*.java"); do
+    echo "Generando headers JNI para $file"
     javac -h "$INCLUDE_DIR" -d "$BIN_DIR" "$file"
-done < /tmp/java_sources.txt
+done
 
-gcc -shared -fPIC -O3 -march=native \
-    -I"$JAVA_INC" \
-    -I"$JAVA_INC_OS" \
-    -I"$INCLUDE_DIR" \
-    "$NATIVE_DIR/arch_optim.c" \
-    -o "$LIB_NAME"
+CFLAGS="-shared -fPIC -O3 -march=native"
+INCLUDES="-I$JAVA_INC -I$JAVA_INC_OS -I$INCLUDE_DIR"
 
-if [ ! -f "$LIB_NAME" ]; then
-    echo "Error: compilación fallida"
+gcc $CFLAGS $INCLUDES "$NATIVE_DIR/arch_optim.c" -o "$LIB_NAME"
+
+if [[ -f "$LIB_NAME" ]]; then
+    echo "Archivo $LIB_NAME generado correctamente"
+else
+    echo "Error: No se pudo generar $LIB_NAME"
     exit 1
 fi
-
-echo "Compilación completada exitosamente"
