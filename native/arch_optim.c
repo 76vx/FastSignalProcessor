@@ -15,63 +15,56 @@ JNIEXPORT void JNICALL Java_com_processor_NativeEngine_applyGainFilterDirect(
 
     if (!data || capacity <= 0 || iterations <= 0) return;
 
-    float total_gain = 1.0f;
-    for (int i = 0; i < iterations; i++) {
+    float total_gain = gain;
+    for (int i = 1; i < iterations; i++) {
         total_gain *= gain;
     }
 
-    const float min_val = -128.0f;
-    const float max_val = 127.0f;
-
-    int chunk_size = 32;
-    long simd_end = (capacity / chunk_size) * chunk_size;
+    const float minVal = -128.0f;
+    const float maxVal = 127.0f;
+    long vectorizedEnd = (capacity / 32) * 32;
 
     #pragma omp parallel
     {
-        __m256 v_gain = _mm256_set1_ps(total_gain);
-        __m256 v_min = _mm256_set1_ps(min_val);
-        __m256 v_max = _mm256_set1_ps(max_val);
+        __m256 vGain = _mm256_set1_ps(total_gain);
+        __m256 vMin  = _mm256_set1_ps(minVal);
+        __m256 vMax  = _mm256_set1_ps(maxVal);
 
         #pragma omp for schedule(static)
-        for (long i = 0; i < simd_end; i += chunk_size) {
-            __m128i low_bytes  = _mm_loadu_si128((__m128i*)&data[i]);
-            __m128i high_bytes = _mm_loadu_si128((__m128i*)&data[i + 16]);
+        for (long i = 0; i < vectorizedEnd; i += 32) {
+            __m128i bytesLo = _mm_loadu_si128((__m128i*)&data[i]);
+            __m128i bytesHi = _mm_loadu_si128((__m128i*)&data[i + 16]);
 
-            __m256i int0 = _mm256_cvtepi8_epi32(low_bytes);
-            __m256i int1 = _mm256_cvtepi8_epi32(_mm_srli_si128(low_bytes, 8));
-            __m256i int2 = _mm256_cvtepi8_epi32(high_bytes);
-            __m256i int3 = _mm256_cvtepi8_epi32(_mm_srli_si128(high_bytes, 8));
+            __m256 f0 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(bytesLo));
+            __m256 f1 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_srli_si128(bytesLo, 8)));
+            __m256 f2 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(bytesHi));
+            __m256 f3 = _mm256_cvtepi32_ps(_mm256_cvtepi8_epi32(_mm_srli_si128(bytesHi, 8)));
 
-            __m256 f0 = _mm256_mul_ps(_mm256_cvtepi32_ps(int0), v_gain);
-            __m256 f1 = _mm256_mul_ps(_mm256_cvtepi32_ps(int1), v_gain);
-            __m256 f2 = _mm256_mul_ps(_mm256_cvtepi32_ps(int2), v_gain);
-            __m256 f3 = _mm256_mul_ps(_mm256_cvtepi32_ps(int3), v_gain);
-
-            f0 = _mm256_min_ps(_mm256_max_ps(f0, v_min), v_max);
-            f1 = _mm256_min_ps(_mm256_max_ps(f1, v_min), v_max);
-            f2 = _mm256_min_ps(_mm256_max_ps(f2, v_min), v_max);
-            f3 = _mm256_min_ps(_mm256_max_ps(f3, v_min), v_max);
+            f0 = _mm256_min_ps(_mm256_max_ps(f0, vMin), vMax);
+            f1 = _mm256_min_ps(_mm256_max_ps(f1, vMin), vMax);
+            f2 = _mm256_min_ps(_mm256_max_ps(f2, vMin), vMax);
+            f3 = _mm256_min_ps(_mm256_max_ps(f3, vMin), vMax);
 
             __m256i r0 = _mm256_cvtps_epi32(f0);
             __m256i r1 = _mm256_cvtps_epi32(f1);
             __m256i r2 = _mm256_cvtps_epi32(f2);
             __m256i r3 = _mm256_cvtps_epi32(f3);
 
-            __m256i pack01 = _mm256_packs_epi32(r0, r1);
-            __m256i pack23 = _mm256_packs_epi32(r2, r3);
-            __m256i pack_final = _mm256_packs_epi16(pack01, pack23);
+            __m256i packedLow  = _mm256_packs_epi32(r0, r1);
+            __m256i packedHigh = _mm256_packs_epi32(r2, r3);
+            __m256i packedAll  = _mm256_packs_epi16(packedLow, packedHigh);
 
-            __m128i low128  = _mm256_castsi256_si128(pack_final);
-            __m128i high128 = _mm256_extracti128_si256(pack_final, 1);
+            __m128i low  = _mm256_castsi256_si128(packedAll);
+            __m128i high = _mm256_extracti128_si256(packedAll, 1);
 
-            _mm_storeu_si128((__m128i*)&data[i], low128);
-            _mm_storeu_si128((__m128i*)&data[i + 16], high128);
+            _mm_storeu_si128((__m128i*)&data[i], low);
+            _mm_storeu_si128((__m128i*)&data[i + 16], high);
         }
     }
 
-    for (long i = simd_end; i < capacity; i++) {
-        float tmp = (float)data[i] * total_gain;
-        tmp = tmp < min_val ? min_val : (tmp > max_val ? max_val : tmp);
-        data[i] = (int8_t)tmp;
+    for (long i = vectorizedEnd; i < capacity; i++) {
+        float val = (float)data[i] * total_gain;
+        val = val < minVal ? minVal : (val > maxVal ? maxVal : val);
+        data[i] = (int8_t)val;
     }
 }
