@@ -2,38 +2,36 @@
 
 set -e
 
-SOURCE_DIR="src"
-NATIVE_DIR="native"
-BIN_DIR="bin"
-INCLUDE_DIR="$NATIVE_DIR/include"
-LIB_NAME="libnative_engine.so"
+SRC="src"
+NATIVE="native"
+BIN="bin"
+INCLUDE="$NATIVE/include"
+LIBRARY="libnative_engine.so"
 
-JAVA_HOME="${JAVA_HOME:?Error: JAVA_HOME no definido}"
-JAVA_INC="$JAVA_HOME/include"
-OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
-JAVA_INC_OS="$JAVA_INC/$OS_NAME"
+JAVA_HOME="${JAVA_HOME:?JAVA_HOME no configurado}"
+JAVA_INCLUDE="$JAVA_HOME/include"
+OS_SPEC=$(uname -s | tr '[:upper:]' '[:lower:]')
+JAVA_INCLUDE_OS="$JAVA_INCLUDE/$OS_SPEC"
 
-rm -rf "$BIN_DIR" "$INCLUDE_DIR" "$LIB_NAME"
-mkdir -p "$BIN_DIR" "$INCLUDE_DIR"
+[ -d "$BIN" ] && rm -rf "$BIN"
+[ -d "$INCLUDE" ] && rm -rf "$INCLUDE"
+mkdir -p "$BIN" "$INCLUDE"
 
-for file in $(find "$SOURCE_DIR" -type f -name "*.java"); do
-    echo "Compilando $file"
-    javac -d "$BIN_DIR" "$file"
+files=($(find "$SRC" -name "*.java"))
+for f in "${files[@]}"; do
+    javac -d "$BIN" "$f"
 done
 
-for file in $(find "$SOURCE_DIR" -type f -name "*.java"); do
-    echo "Generando headers JNI para $file"
-    javac -h "$INCLUDE_DIR" -d "$BIN_DIR" "$file"
+for f in "${files[@]}"; do
+    javac -h "$INCLUDE" -d "$BIN" "$f"
 done
 
-CFLAGS="-shared -fPIC -O3 -march=native"
-INCLUDES="-I$JAVA_INC -I$JAVA_INC_OS -I$INCLUDE_DIR"
+INCLUDE_FLAGS="-I$JAVA_INCLUDE -I$JAVA_INCLUDE_OS -I$INCLUDE"
+gcc -shared -fPIC -O3 -march=native $INCLUDE_FLAGS "$NATIVE/arch_optim.c" -o "$LIBRARY"
 
-gcc $CFLAGS $INCLUDES "$NATIVE_DIR/arch_optim.c" -o "$LIB_NAME"
-
-if [[ -f "$LIB_NAME" ]]; then
-    echo "Archivo $LIB_NAME generado correctamente"
-else
-    echo "Error: No se pudo generar $LIB_NAME"
+if [[ ! -f "$LIBRARY" ]]; then
+    echo "Compilación fallida"
     exit 1
 fi
+
+echo "Todo compilado correctamente"
