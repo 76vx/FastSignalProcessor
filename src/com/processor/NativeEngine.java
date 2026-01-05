@@ -14,45 +14,57 @@ public final class NativeEngine {
     public native void applyGainFilterDirect(ByteBuffer data, float gain, int iterations);
 
     public void executeHighPerformanceCompute() {
-        final int bufferSize = 256 * 1024 * 1024; 
-        final int alignment = 64; 
-        
-        ByteBuffer signalData = ByteBuffer.allocateDirect(bufferSize + alignment)
-                                          .order(ByteOrder.nativeOrder());
-        
-        long address = ((sun.nio.ch.DirectBuffer)signalData).address();
-        int offset = (int) (alignment - (address % alignment));
-        signalData.position(offset);
-        ByteBuffer alignedBuffer = signalData.slice().order(ByteOrder.nativeOrder());
+        final int bufferSizeMB = 256;
+        final int bufferSize = bufferSizeMB * 1024 * 1024;
+        final int alignmentBytes = 64;
+
+        System.out.println("Allocating buffer of size: " + bufferSizeMB + " MB with alignment: " + alignmentBytes + " bytes");
+
+        ByteBuffer rawBuffer = ByteBuffer.allocateDirect(bufferSize + alignmentBytes)
+                                         .order(ByteOrder.nativeOrder());
+
+        long rawAddress = ((sun.nio.ch.DirectBuffer) rawBuffer).address();
+        int offset = (int) (alignmentBytes - (rawAddress % alignmentBytes));
+        rawBuffer.position(offset);
+        ByteBuffer alignedBuffer = rawBuffer.slice().order(ByteOrder.nativeOrder());
+
+        System.out.println("Buffer aligned at offset: " + offset);
 
         byte[] entropy = new byte[1024 * 1024];
         ThreadLocalRandom.current().nextBytes(entropy);
+        System.out.println("Entropy generated: " + entropy.length + " bytes");
 
-        IntStream.range(0, Runtime.getRuntime().availableProcessors()).parallel().forEach(core -> {
-            int chunk = bufferSize / Runtime.getRuntime().availableProcessors();
-            int start = core * chunk;
-            alignedBuffer.duplicate().position(start).put(entropy, 0, Math.min(entropy.length, chunk));
+        int cores = Runtime.getRuntime().availableProcessors();
+        System.out.println("Available cores: " + cores);
+
+        IntStream.range(0, cores).parallel().forEach(core -> {
+            int chunkSize = bufferSize / cores;
+            int start = core * chunkSize;
+            ByteBuffer slice = alignedBuffer.duplicate();
+            slice.position(start);
+            slice.put(entropy, 0, Math.min(entropy.length, chunkSize));
         });
 
-        System.out.printf("Memory: %d MB | Alignment: %d bits%n", bufferSize >> 20, alignment * 8);
+        System.out.println("Buffer populated with random data");
 
-        for (int warmup = 0; warmup < 5; warmup++) {
+        for (int i = 0; i < 5; i++) {
             applyGainFilterDirect(alignedBuffer, 1.1f, 1);
         }
 
-        final long startTime = System.nanoTime();
-
+        long startTime = System.nanoTime();
         applyGainFilterDirect(alignedBuffer, 1.5f, 20);
+        long endTime = System.nanoTime();
 
-        final long endTime = System.nanoTime();
-        
-        final double durationS = (endTime - startTime) / 1_000_000_000.0;
-        final double throughputGBs = (bufferSize / (1024.0 * 1024.0 * 1024.0)) / durationS;
+        double durationS = (endTime - startTime) / 1_000_000_000.0;
+        double throughputGBs = (bufferSize / (1024.0 * 1024.0 * 1024.0)) / durationS;
 
-        System.out.printf("Latency: %.4f ms | Throughput: %.2f GB/s%n", durationS * 1000, throughputGBs);
+        System.out.printf("Execution finished: %.4f s | Throughput: %.2f GB/s%n", durationS, throughputGBs);
     }
 
     public static void main(String[] args) {
-        new NativeEngine().executeHighPerformanceCompute();
+        System.out.println("Starting NativeEngine benchmark...");
+        NativeEngine engine = new NativeEngine();
+        engine.executeHighPerformanceCompute();
+        System.out.println("NativeEngine benchmark completed successfully.");
     }
 }
