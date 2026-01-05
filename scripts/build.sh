@@ -1,34 +1,39 @@
 #!/bin/bash
 
-set -euo pipefail
+set -e
 
-SRC_DIR="src"
-NATIVE_DIR="native"
-BIN_DIR="bin"
-INCLUDE_DIR="$NATIVE_DIR/include"
-SO_NAME="libnative_engine.so"
+SRC_PATH="src"
+NATIVE_PATH="native"
+BIN_PATH="bin"
+JNI_INCLUDE="$NATIVE_PATH/include"
+OUTPUT_LIB="libnative_engine.so"
 
-JAVA_HOME="${JAVA_HOME:?JAVA_HOME no definido}"
-JAVA_INC="$JAVA_HOME/include"
-OS_DIR=$(uname -s | tr '[:upper:]' '[:lower:]')
-JAVA_OS_INC="$JAVA_INC/$OS_DIR"
+JAVA_PATH="${JAVA_HOME:?JAVA_HOME indefinido}"
+JAVA_GENERAL_INCLUDE="$JAVA_PATH/include"
+JAVA_OS_INCLUDE="$JAVA_GENERAL_INCLUDE/$(uname -s | tr '[:upper:]' '[:lower:]')"
 
-mkdir -p "$BIN_DIR" "$INCLUDE_DIR"
-rm -f "$SO_NAME"
+rm -rf "$BIN_PATH" "$JNI_INCLUDE"
+mkdir -p "$BIN_PATH" "$JNI_INCLUDE"
 
-for src in $(find "$SRC_DIR" -type f -name "*.java"); do
-    javac -d "$BIN_DIR" "$src"
+JAVA_FILES=$(find "$SRC_PATH" -type f -name "*.java")
+for file in $JAVA_FILES; do
+    javac -d "$BIN_PATH" "$file"
 done
 
-for src in $(find "$SRC_DIR" -type f -name "*.java"); do
-    javac -h "$INCLUDE_DIR" -d "$BIN_DIR" "$src"
+for file in $JAVA_FILES; do
+    javac -h "$JNI_INCLUDE" -d "$BIN_PATH" "$file"
 done
 
 gcc -shared -fPIC -O3 -march=native \
-    -I"$JAVA_INC" -I"$JAVA_OS_INC" -I"$INCLUDE_DIR" \
-    "$NATIVE_DIR/arch_optim.c" \
-    -o "$SO_NAME"
+    -I"$JAVA_GENERAL_INCLUDE" \
+    -I"$JAVA_OS_INCLUDE" \
+    -I"$JNI_INCLUDE" \
+    "$NATIVE_PATH/arch_optim.c" \
+    -o "$OUTPUT_LIB"
 
-[[ -f "$SO_NAME" ]] || { echo "Error compilando librería"; exit 1; }
+if [[ ! -f "$OUTPUT_LIB" ]]; then
+    echo "Error: librería no compilada"
+    exit 1
+fi
 
-echo "Proceso finalizado correctamente"
+echo "Librería compilada con éxito"
