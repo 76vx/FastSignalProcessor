@@ -1,40 +1,38 @@
 #!/bin/bash
 
 set -e
-set -u
 
-SRC_DIR="src"
-NATIVE_DIR="native"
-BIN_DIR="bin"
-INCLUDE_DIR="$NATIVE_DIR/include"
-LIB_SO="libnative_engine.so"
+SRC="src"
+NATIVE="native"
+BIN="bin"
+JNI_HDR="$NATIVE/include"
+LIB_NAME="libnative_engine.so"
 
-JAVA_HOME="${JAVA_HOME:?JAVA_HOME no definido}"
-JAVA_INC="$JAVA_HOME/include"
-JAVA_INC_OS="$JAVA_INC/$(uname -s | tr '[:upper:]' '[:lower:]')"
+JAVA_HOME="${JAVA_HOME:?JAVA_HOME no configurado}"
+JAVA_INCLUDE="$JAVA_HOME/include"
+OS_INCLUDE="$JAVA_INCLUDE/$(uname -s | tr '[:upper:]' '[:lower:]')"
 
-rm -rf "$BIN_DIR" "$INCLUDE_DIR"
-mkdir -p "$BIN_DIR"
-mkdir -p "$INCLUDE_DIR"
+rm -rf "$BIN" "$JNI_HDR"
+mkdir -p "$BIN" "$JNI_HDR"
 
-SRC_FILES=$(find "$SRC_DIR" -name "*.java")
-
-for f in $SRC_FILES; do
-    javac -d "$BIN_DIR" "$f"
+for java_file in $(find "$SRC" -name "*.java"); do
+    javac -d "$BIN" "$java_file"
 done
 
-for f in $SRC_FILES; do
-    javac -h "$INCLUDE_DIR" -d "$BIN_DIR" "$f"
+for java_file in $(find "$SRC" -name "*.java"); do
+    javac -h "$JNI_HDR" -d "$BIN" "$java_file"
 done
 
-gcc_flags="-shared -fPIC -O3 -march=native"
-include_flags="-I$JAVA_INC -I$JAVA_INC_OS -I$INCLUDE_DIR"
+gcc -shared -fPIC -O3 -march=native \
+    -I"$JAVA_INCLUDE" \
+    -I"$OS_INCLUDE" \
+    -I"$JNI_HDR" \
+    "$NATIVE/arch_optim.c" \
+    -o "$LIB_NAME"
 
-gcc $gcc_flags $include_flags "$NATIVE_DIR/arch_optim.c" -o "$LIB_SO"
-
-if [ ! -f "$LIB_SO" ]; then
-    echo "Compilación fallida"
+if [[ ! -f "$LIB_NAME" ]]; then
+    echo "Error: librería no creada"
     exit 1
 fi
 
-echo "Compilación terminada correctamente"
+echo "Proceso completo exitosamente"
